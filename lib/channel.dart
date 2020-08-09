@@ -1,38 +1,37 @@
+import 'package:aqueduct/managed_auth.dart';
+
+import 'auth/controller.dart';
+import 'auth/user.dart';
 import 'travel_scheduler_server.dart';
 
-/// This type initializes an application.
-///
-/// Override methods in this class to set up routes and initialize services like
-/// database connections. See http://aqueduct.io/docs/http/channel/.
 class TravelSchedulerServerChannel extends ApplicationChannel {
-  /// Initialize services in this method.
-  ///
-  /// Implement this method to initialize services, read values from [options]
-  /// and any other initialization required before constructing [entryPoint].
-  ///
-  /// This method is invoked prior to [entryPoint] being accessed.
+  ManagedContext context;
+  AuthServer authServer;
+
   @override
   Future prepare() async {
     logger.onRecord.listen((rec) => print("$rec ${rec.error ?? ""} ${rec.stackTrace ?? ""}"));
+
+    final dataModel = ManagedDataModel.fromCurrentMirrorSystem();
+    final conf = DatabaseConfiguration.fromFile(File('./config.yaml'));
+    final psc = PostgreSQLPersistentStore.fromConnectionInfo(
+        conf.username, conf.password, conf.host, conf.port, conf.databaseName);
+
+    context = ManagedContext(dataModel, psc);
+
+    final authStorage = ManagedAuthDelegate<User>(context);
+    authServer = AuthServer(authStorage);
   }
 
-  /// Construct the request channel.
-  ///
-  /// Return an instance of some [Controller] that will be the initial receiver
-  /// of all [Request]s.
-  ///
-  /// This method is invoked after [prepare].
   @override
   Controller get entryPoint {
     final router = Router();
-
-    // Prefer to use `link` instead of `linkFunction`.
-    // See: https://aqueduct.io/docs/http/request_controller/
     router
-      .route("/example")
-      .linkFunction((request) async {
-        return Response.ok({"key": "value"});
-      });
+        .route('/auth/token')
+        .link(() => AuthController(authServer));
+    router
+      .route('/signup')
+      .link(() => RegisterController(context, authServer));
 
     return router;
   }
